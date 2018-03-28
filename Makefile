@@ -1,15 +1,24 @@
 CXX = g++
-CXXFLAGS = -g  -std=c++11
-#CXXFLAGS = -g -Wall -std=c++11
-COMPILE = $(CXX) $(CXXFLAGS) -c
-EXE = front-end
-OBJS = front-end.o
 
-$(EXE): $(OBJS)
+CXXFLAGS = -g -Wall -std=c++0x
+
+COMPILE = $(CXX) $(CXXFLAGS) -c
+
+EXE = lispintrepreter
+
+OBJS = front-end.o EvalClass.o S_Exprsn.o 
+
+$(EXE) : $(OBJS)
 	$(CXX) $^ -o $@
 
-front-end.o: front-end.cpp
-
 clean : 
-	rm *.o front-end
+	rm *.o lispintrepreter
 
+%.o : %.cc
+	$(COMPILE) -o $@ $<
+
+front-end.o : EvalClass.h
+
+EvalClass.o : EvalClass.h
+
+S_Exprsn.o : S_Exprsn.h

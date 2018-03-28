@@ -1,6 +1,10 @@
 #include <iostream>
 #include <string.h>
+#include<bits/stdc++.h>
 #include <vector>
+#include "EvalClass.h"
+#include <fstream>
+
 using namespace std;
 
 //#define VERBOSE
@@ -10,7 +14,8 @@ const int max_digit_int = 10;
 enum class status
 {
 	success = 0,
-	done,
+	exp_end,
+	input_end,
 	misplaced_braces,
 	unequal_braces,
 	invalid_charecter,
@@ -20,114 +25,185 @@ enum class status
 };
 
 status createtokens(string inp);
+status read_expression();
 status error = status::success;
 
 int token_index=0;
 
-struct Node{
-	string data;
-	Node *right;
-	Node *left;
+enum class tokentype
+{
+	openbrace = 0,
+	closebrace,
+	dot,
+	integer,
+	identifier,
+	space,
+	endexp,		//$
+	endinput	//$$
 };
 
-Node* createtree();
-Node* createtree2();
-
-Node* GetNewNode(string d)
-{
-	Node* newNode = new Node;
-	newNode->data = d;
-	newNode->left = NULL;
-	newNode->right = NULL;
-	return newNode;
-}
-
 string input_expression = "";
-vector <string> tokens;
+vector< pair <string, tokentype> > tokens;
 
-void printoutput(Node* root)
+void clear_global_state()
 {
-	if(root!=NULL)
-	{
-		if(root->left==NULL && root->right==NULL)
-		{
-			cout << root->data;
-		}
-		else
-		{
-			cout<<"(";
-			printoutput(root->left);
-			cout<<" . ";
-			printoutput(root->right);
-			cout<<")";
-		}
-	}
+	input_expression = "";
+	tokens.clear();
+	error = status::success;
+	token_index=0;
 }
 
-Node* createtree2()
+class Analyser {
+public:
+    Analyser();
+    ~Analyser();
+    S_Exprsn * createtree();
+    S_Exprsn * createtree2();
+	string toStringfromExpression(S_Exprsn * exp);
+};
+
+Analyser::Analyser()
 {
-	Node *root = NULL;
-	if(tokens[token_index]==")")
+    cout<<"<Program Started>"<<endl;
+    S_Exprsn::InitializeDefaultSymbolizAtoms();
+    EvalClass evaluator;
+    S_Exprsn * Alist = S_Exprsn::symbolicAtom("NIL");
+    S_Exprsn * pDList = S_Exprsn::symbolicAtom("NIL");
+    S_Exprsn ** Dlist = &pDList;
+	status ret = status::success;
+
+	while (true)
 	{
-		token_index++;
-		return GetNewNode("NIL");
+		S_Exprsn *  expTree = NULL;
+		string expString;
+		clear_global_state();
+		ret = read_expression();
+//		for(int i = 0; i < tokens.size(); i++)
+//		{
+//			cout << tokens[token_index].first << endl;
+//		}
+        if(ret == status::exp_end || ret == status::input_end)
+		{
+			expTree = createtree();
+            expString = toStringfromExpression(expTree);
+            cout << "Dot notation>" << expString << endl;
+            expTree = evaluator.eval(expTree,Alist,Dlist);
+            expString = toStringfromExpression(expTree);
+            cout << ">" << expString << endl;
+            if(ret == status::input_end)
+                break;
+        }
+        else
+		{
+            throw std::runtime_error(">Error:: Invalid input");
+			break;
+		}
 	}
-	else if(tokens[token_index]==" ")
-	{
-		token_index++;
-		root = GetNewNode(" ");
-		root->left = createtree();
-		root->right = createtree2();
-		return root;
-	}
+
+    cout<<"<End of program>"<<endl;
 }
 
-Node* createtree()
+Analyser::~Analyser() {
+    S_Exprsn::DeleteSymbolicAtoms();
+}
+
+S_Exprsn* Analyser::createtree()
 {
-	Node *root = NULL;
-	
-	if(tokens[token_index]=="(")
+	if(tokens.size() == 0)
+		return NULL;
+
+	if(tokens[token_index].second==tokentype::openbrace)
 	{
 		token_index++;
-		if(tokens[token_index]==")")
+		if(tokens[token_index].second==tokentype::closebrace)
 		{
-			token_index++;
-			return GetNewNode("NIL");
+			return createtree2();
 		}
-		Node *left = createtree();
-		Node *right = NULL; 
-		if(tokens[token_index]==".")
+        S_Exprsn * leftExpression = createtree();
+        S_Exprsn * rightExpression;
+		if(tokens[token_index].second==tokentype::dot)
 		{
 			token_index++;
-			right = createtree();
-			if(tokens[token_index]!=")")
+            rightExpression = createtree();
+			if(tokens[token_index].second!=tokentype::closebrace)
 			{
-				error = status::expected_paranthesis;
-				return NULL;
-			}
+                throw std::runtime_error(">Error::Expected ')' ,found "+tokens[token_index].first );
+                return NULL;
+            }
 			token_index++;
-		}
-		else
+        }
+        else
 		{
-			right = createtree2();
-		}
-
-		root = GetNewNode(" ");
-		root->left = left;
-		root->right = right;
-		return root;
-	}
-	else if((tokens[token_index][0]==45)
-			|| (tokens[token_index][0]>47 && tokens[token_index][0]<58) 
-			|| (tokens[token_index][0]>64 && tokens[token_index][0]<91)
-			|| (tokens[token_index][0]>96 && tokens[token_index][0]<123)
-			)
+            rightExpression = createtree2();
+        }
+        S_Exprsn * newExpression = new S_Exprsn(NONATOM);
+        newExpression->setLeft(leftExpression);
+        newExpression->setRight(rightExpression);
+        return  newExpression;
+    }
+	else if(tokens[token_index].second == tokentype::identifier)
 	{
-		root = GetNewNode(tokens[token_index]);
 		token_index++;
-		return root;
-	}	
-	return root;
+        return S_Exprsn::symbolicAtom(tokens[token_index-1].first);
+    }
+	else if(tokens[token_index].second==tokentype::integer)
+	{
+        S_Exprsn * newIntegerExpression = new S_Exprsn(INTEGERATOM);
+        newIntegerExpression->setVal(stoi(tokens[token_index].first));
+		token_index++;
+        return  newIntegerExpression;
+    }
+    else
+	{
+        throw std::runtime_error(">Error:: Invalid token in s-expression:"+tokens[token_index].first);
+		return NULL;
+    }
+}
+
+S_Exprsn* Analyser::createtree2()
+{
+	if(tokens[token_index].second==tokentype::closebrace)
+	{
+		token_index++;
+        return S_Exprsn::symbolicAtom("NIL");
+    }
+	else if(tokens[token_index].second==tokentype::space)
+	{
+		token_index++;
+        S_Exprsn * newExpression = new S_Exprsn(NONATOM);
+        newExpression->setLeft(createtree());
+        newExpression->setRight(createtree2());
+        return newExpression;
+    }
+    else
+	{
+        throw std::runtime_error(">Error:: Invalid token in s-expression:"+tokens[token_index].first);
+        return NULL;
+    }
+}
+
+string Analyser::toStringfromExpression(S_Exprsn * exp)
+{
+    string expString;
+    switch(exp->getType()){
+        case NONATOM:
+            expString+= '(';
+            expString += toStringfromExpression(exp->getLeft());
+            expString += '.';
+            expString += toStringfromExpression(exp->getRight());
+            expString += ')';
+            break;
+        case INTEGERATOM:
+            expString += to_string(exp->getVal());
+            break;
+        case SYMBOLICATOM:
+            expString += exp->getName();
+            break;
+        default:
+            break;
+
+    }
+    return expString;
 }
 
 //create array with populated tokens. Check all the conditions for validness.
@@ -154,7 +230,7 @@ status createtokens(string inp)
 			}
 			if((i - token_length) <= max_char_symbol)
 			{
-				tokens.push_back(token);
+				tokens.push_back(make_pair(token, tokentype::identifier));
 #ifdef VERBOSE
 				cout << "added token: " << token << "of length" << (i - token_length) << endl;
 #endif
@@ -167,7 +243,7 @@ status createtokens(string inp)
 				return status::incompliant_names;
 			}
 		}
-		else if((inp[i]>47 && inp[i]<58) || inp[i]==45)
+		else if((inp[i]>47 && inp[i]<58) || inp[i]==45 || inp[i]==43 )
 		{
 			token=inp[i];
 			i++;
@@ -179,16 +255,16 @@ status createtokens(string inp)
 #endif
 				i++;
 			}
-			if(token == "-")
+			if((token == "-") || (token == "+"))
 			{
 #ifdef VERBOSE
 				cout << "Createtokens return incompliant_names " << "." << endl;
 #endif
-				return status::incompliant_names; //just '-' found, not an integer followed by.
+				return status::incompliant_names; //just '-' found, not an tokentype::integer followed by.
 			}
 			else if((i - token_length) <= max_digit_int) //TODO: check if - is found then 7 chars is allowed
 			{
-				tokens.push_back(token);
+				tokens.push_back(make_pair(token, tokentype::integer));
 #ifdef VERBOSE
 				cout << "added token: " << token << "of length" << (i - token_length) << endl;
 #endif
@@ -203,12 +279,12 @@ status createtokens(string inp)
 		}
 		else if(inp[i]==40)
 		{
-			if(inp[i-1]==41)
+			if((i !=0) and (inp[i-1]==41))
 			{
 				return status::misplaced_braces;
 			}
 			i++;
-			tokens.push_back("(");
+			tokens.push_back(make_pair("(", tokentype::openbrace));
 			countOpen++;
 #ifdef VERBOSE
 			cout << "added token: " << "(" << endl;
@@ -217,7 +293,17 @@ status createtokens(string inp)
 		else if(inp[i]==41)
 		{
 			i++;
-			tokens.push_back(")");
+			if(tokens.size()!=0)
+			{
+				if(tokens.back().second == tokentype::space)
+				{
+					tokens.pop_back();
+#ifdef VERBOSE
+					cout << "removed: " << " " << endl;
+#endif
+				}
+			}
+			tokens.push_back(make_pair(")", tokentype::closebrace));
 			countOpen--;
 #ifdef VERBOSE
 			cout << "added token: " << ")" << endl;
@@ -229,23 +315,29 @@ status createtokens(string inp)
 			{
 				return status::expected_paranthesis;
 			}
-			if ((tokens.back() == ".") || (tokens.back() == "(") || inp[i+1]==41)
+			if ((tokens.back().second == tokentype::dot) || (tokens.back().second == tokentype::openbrace) || inp[i+1]==41)
 			{
 				return status::extra_dot;
 			}
-			tokens.push_back(".");
+			tokens.push_back(make_pair(".", tokentype::dot));
+#ifdef VERBOSE
+			cout << "added token: " << "." << endl;
+#endif
 			i++;
 		}
-		else if(inp[i]==32)
+		else if(inp[i]==32 || inp[i]==9 )
 		{
 			if(token.size() > 0)
 			{
-				if ((tokens.back() == ".") || (tokens.back() == "(") || (tokens.back() == " ") || inp[i+1]==46)
+				if ((tokens.back().second == tokentype::dot) ||
+					(tokens.back().second == tokentype::openbrace) ||
+					(tokens.back().second == tokentype::space) ||
+					inp[i+1]==46)
 				{
 					i++;
 					continue;
 				}
-				tokens.push_back(" ");
+				tokens.push_back(make_pair(" ", tokentype::space ));
 #ifdef VERBOSE
 			cout << "added token: " << " " << endl;
 #endif
@@ -332,13 +424,9 @@ void printerrormsg(status flag)
 	}
 }
 
-void clear_global_state()
-{
-	input_expression = "";
-	tokens.clear();
-}
 
-void executeexpression()
+
+void checkandcreatetokens()
 {
 	status ret = status::success;
 	ret = checkparenthesis(input_expression);	//s is a global variable
@@ -352,35 +440,13 @@ void executeexpression()
 	if(ret != status::success)
 	{
 		printerrormsg(ret);
-		clear_global_state();
-		return;
 	}
-	else
-	{
-		token_index = 0;	//set global vairable used by createtreeList()
-		error = status::success;
-		Node *toproot;
-		toproot = createtree();
-		if(error != status::success)
-		{
-			printerrormsg(error);
-			clear_global_state();
-			return;
-		}
-		else
-		{
-			printoutput(toproot);
-			cout << endl;
-			toproot = NULL;
-		}
-	}
-	clear_global_state();
 	return;
 }
 
 void addinput(string inp)
 {
-	if(inp.substr( inp.length()-1 ) != "." && inp.substr( inp.length()-1 ) != "$")
+	if(inp.substr( inp.length()-1 ) != "." && inp.substr( inp.length()-1 ) != "$" && inp.substr( inp.length()-1 ) != ")" && inp.substr( inp.length()-1 ) != "(")
 	{
 		inp.append(" ");
 	}
@@ -403,8 +469,8 @@ status parseinput(string line)
 		if(line == "$")
 		{
 			input_expression.pop_back();
-			executeexpression();
-			return status::success;
+			checkandcreatetokens();
+			return status::exp_end;
 		}
 	}
 	else if(len == 2)
@@ -413,14 +479,14 @@ status parseinput(string line)
 		{
 			input_expression.pop_back();
 			input_expression.pop_back();
-			executeexpression();
-			return status::done;
+			checkandcreatetokens();
+			return status::input_end;
 		}
 		else if(line.substr( len-1 ) == "$")
 		{
 			input_expression.pop_back();
-			executeexpression();
-			return status::success;
+			checkandcreatetokens();
+			return status::exp_end;
 		}
 	}
 	else
@@ -429,34 +495,38 @@ status parseinput(string line)
 		{
 			input_expression.pop_back();
 			input_expression.pop_back();
-			executeexpression();
-			return status::done;
+			checkandcreatetokens();
+			return status::input_end;
 		}
 		else if(line.substr( len-1 ) == "$")
 		{
 			input_expression.pop_back();
-			executeexpression();
-			return status::success;
-		}
-		else
-		{
-			return status::success;
+			checkandcreatetokens();
+			return status::exp_end;
 		}
 	}
+	return status::success;
 }
 
+//std::ifstream infile("test_case_others");
+
 /* Reads input */
-int main()
+status read_expression()
 {
 	string line;
 	status ret;
-
 	do
 	{
+		//getline(infile,line);
 		getline(cin,line);
 		ret = parseinput(line);
 	}
-	while(ret != status::done);
-	//cout << "Bye, Have a good day!" << endl;
-	return 0;
+	while((ret != status::input_end)&&(ret != status::exp_end)) ;
+	return ret;
+}
+
+int main()
+{
+    Analyser Analyser;
+    return 0;
 }
